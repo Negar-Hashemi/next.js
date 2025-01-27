@@ -393,7 +393,7 @@ where
 #[turbo_tasks::function]
 pub(crate) async fn analyse_ecmascript_module(
     module: ResolvedVc<EcmascriptModuleAsset>,
-    part: Option<Vc<ModulePart>>,
+    part: Option<ModulePart>,
 ) -> Result<Vc<AnalyzeEcmascriptModuleResult>> {
     let span = {
         let module = module.ident().to_string().await?.to_string();
@@ -414,7 +414,7 @@ pub(crate) async fn analyse_ecmascript_module(
 
 pub(crate) async fn analyse_ecmascript_module_internal(
     module: ResolvedVc<EcmascriptModuleAsset>,
-    part: Option<Vc<ModulePart>>,
+    part: Option<ModulePart>,
 ) -> Result<Vc<AnalyzeEcmascriptModuleResult>> {
     let raw_module = module.await?;
 
@@ -604,66 +604,60 @@ pub(crate) async fn analyse_ecmascript_module_internal(
 
     let mut evaluation_references = Vec::new();
 
-    // ast-grep-ignore: to-resolved-in-loop
-    for (i, r) in eval_context.imports.references().enumerate() {
-        let r = EsmAssetReference::new(
-            origin,
-            Request::parse(Value::new(RcStr::from(&*r.module_path).into()))
-                .to_resolved()
-                .await?,
-            if let Some(issue_source) = r.issue_source {
-                issue_source.to_resolved().await?
-            } else {
-                IssueSource::from_source_only(*source).to_resolved().await?
-            },
-            Value::new(r.annotations.clone()),
-            match options.tree_shaking_mode {
-                Some(TreeShakingMode::ModuleFragments) => match &r.imported_symbol {
-                    ImportedSymbol::ModuleEvaluation => {
-                        evaluation_references.push(i);
-                        Some(ModulePart::evaluation().to_resolved().await?)
-                    }
-                    ImportedSymbol::Symbol(name) => {
-                        Some(ModulePart::export((&**name).into()).to_resolved().await?)
-                    }
-                    ImportedSymbol::PartEvaluation(part_id) => {
-                        evaluation_references.push(i);
-                        Some(
-                            ModulePart::internal_evaluation(*part_id)
-                                .to_resolved()
-                                .await?,
-                        )
-                    }
-                    ImportedSymbol::Part(part_id) => {
-                        Some(ModulePart::internal(*part_id).to_resolved().await?)
-                    }
-                    ImportedSymbol::Exports => Some(ModulePart::exports().to_resolved().await?),
+    async {
+        for (i, r) in eval_context.imports.references().enumerate() {
+            let r = EsmAssetReference::new(
+                origin,
+                Request::parse(Value::new(RcStr::from(&*r.module_path).into()))
+                    .to_resolved()
+                    .await?,
+                if let Some(issue_source) = r.issue_source {
+                    issue_source.to_resolved().await?
+                } else {
+                    IssueSource::from_source_only(*source).to_resolved().await?
                 },
-                Some(TreeShakingMode::ReexportsOnly) => match &r.imported_symbol {
-                    ImportedSymbol::ModuleEvaluation => {
+                Value::new(r.annotations.clone()),
+                match options.tree_shaking_mode {
+                    Some(TreeShakingMode::ModuleFragments) => match &r.imported_symbol {
+                        ImportedSymbol::ModuleEvaluation => {
+                            evaluation_references.push(i);
+                            Some(ModulePart::evaluation())
+                        }
+                        ImportedSymbol::Symbol(name) => Some(ModulePart::export((&**name).into())),
+                        ImportedSymbol::PartEvaluation(part_id) => {
+                            evaluation_references.push(i);
+                            Some(ModulePart::internal_evaluation(*part_id))
+                        }
+                        ImportedSymbol::Part(part_id) => Some(ModulePart::internal(*part_id)),
+                        ImportedSymbol::Exports => Some(ModulePart::exports()),
+                    },
+                    Some(TreeShakingMode::ReexportsOnly) => match &r.imported_symbol {
+                        ImportedSymbol::ModuleEvaluation => {
+                            evaluation_references.push(i);
+                            Some(ModulePart::evaluation())
+                        }
+                        ImportedSymbol::Symbol(name) => Some(ModulePart::export((&**name).into())),
+                        ImportedSymbol::PartEvaluation(_) | ImportedSymbol::Part(_) => {
+                            bail!("Internal imports doesn't exist in reexports only mode")
+                        }
+                        ImportedSymbol::Exports => None,
+                    },
+                    None => {
                         evaluation_references.push(i);
-                        Some(ModulePart::evaluation().to_resolved().await?)
+                        None
                     }
-                    ImportedSymbol::Symbol(name) => {
-                        Some(ModulePart::export((&**name).into()).to_resolved().await?)
-                    }
-                    ImportedSymbol::PartEvaluation(_) | ImportedSymbol::Part(_) => {
-                        bail!("Internal imports doesn't exist in reexports only mode")
-                    }
-                    ImportedSymbol::Exports => None,
                 },
-                None => {
-                    evaluation_references.push(i);
-                    None
-                }
-            },
-            import_externals,
-        )
-        .to_resolved()
-        .await?;
+                import_externals,
+            )
+            .to_resolved()
+            .await?;
 
-        import_references.push(r);
+            import_references.push(r);
+        }
+        anyhow::Ok(())
     }
+    .instrument(tracing::info_span!("import references"))
+    .await?;
 
     for i in evaluation_references {
         let reference = import_references[i];
@@ -1239,7 +1233,7 @@ pub(crate) async fn analyse_ecmascript_module_internal(
                                         r_ref.request,
                                         r_ref.issue_source,
                                         Value::new(r_ref.annotations.clone()),
-                                        Some(ModulePart::export(export).to_resolved().await?),
+                                        Some(ModulePart::export(export)),
                                         r_ref.import_externals,
                                     )
                                     .to_resolved()
@@ -2403,11 +2397,7 @@ async fn handle_free_var_reference(
                 match state.tree_shaking_mode {
                     Some(TreeShakingMode::ModuleFragments)
                     | Some(TreeShakingMode::ReexportsOnly) => {
-                        if let Some(export) = export {
-                            Some(ModulePart::export(export.clone()).to_resolved().await?)
-                        } else {
-                            None
-                        }
+                        export.clone().map(ModulePart::export)
                     }
                     None => None,
                 },
