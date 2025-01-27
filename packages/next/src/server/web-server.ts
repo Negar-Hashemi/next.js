@@ -173,7 +173,6 @@ export default class NextWebServer extends BaseServer<
         ) as NextParsedUrlQuery
         const paramsResult = normalizeDynamicRouteParams(
           query,
-          false,
           routeRegex,
           defaultRouteMatches
         )

@@ -1243,10 +1243,7 @@ export default abstract class Server<
                 utils.getParamsFromRouteMatches(routeMatchesHeader)
 
               if (routeMatches) {
-                paramsResult = utils.normalizeDynamicRouteParams(
-                  routeMatches,
-                  true
-                )
+                paramsResult = utils.normalizeDynamicRouteParams(routeMatches)
 
                 if (paramsResult.hasValidParams) {
                   params = paramsResult.params
@@ -1259,8 +1256,7 @@ export default abstract class Server<
               utils.defaultRouteMatches &&
               normalizedUrlPath === srcPathname &&
               !paramsResult.hasValidParams &&
-              !utils.normalizeDynamicRouteParams({ ...params }, true)
-                .hasValidParams
+              !utils.normalizeDynamicRouteParams({ ...params }).hasValidParams
             ) {
               params = utils.defaultRouteMatches
 

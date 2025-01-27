@@ -90,7 +90,6 @@ export function interpolateDynamicPath(
 
 export function normalizeDynamicRouteParams(
   params: ParsedUrlQuery,
-  ignoreOptional?: boolean,
   defaultRouteRegex?: ReturnType<typeof getNamedRouteRegex> | undefined,
   defaultRouteMatches?: ParsedUrlQuery | undefined
 ) {
@@ -126,10 +125,7 @@ export function normalizeDynamicRouteParams(
         })
       : value?.includes(defaultValue as string)
 
-    if (
-      isDefaultValue ||
-      (typeof value === 'undefined' && !(isOptional && ignoreOptional))
-    ) {
+    if (isDefaultValue || (typeof value === 'undefined' && !isOptional)) {
       hasValidParams = false
     }
 
@@ -375,13 +371,9 @@ export function getUtils({
     dynamicRouteMatcher,
     defaultRouteMatches,
     getParamsFromRouteMatches,
-    normalizeDynamicRouteParams: (
-      params: ParsedUrlQuery,
-      ignoreOptional?: boolean
-    ) =>
+    normalizeDynamicRouteParams: (params: ParsedUrlQuery) =>
       normalizeDynamicRouteParams(
         params,
-        ignoreOptional,
         defaultRouteRegex,
         defaultRouteMatches
       ),
